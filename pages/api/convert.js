@@ -1,12 +1,7 @@
 export default async function handler(req, res) {
-<<<<<<< HEAD
     const inputUrl = req.query.url;
     const inputUri = req.query.uri;
     if (!inputUrl && !inputUri) return res.status(400).json({ error: "missing url or uri" });
-=======
-    const input = req.query.url;
-    if (!input) return res.status(400).json({ error: "missing url" });
->>>>>>> 771f3ed9876037d976ad3a6519608a7a859bf54e
 
     // 建议加：Vercel CDN 缓存，减少 Odesli 请求次数，降低 429 概率
     res.setHeader(
@@ -14,7 +9,6 @@ export default async function handler(req, res) {
         "public, s-maxage=86400, stale-while-revalidate=604800"
     );
 
-<<<<<<< HEAD
     if (inputUri) {
         const parts = String(inputUri).split(':');
         if (parts.length !== 3 || parts[0] !== 'spotify') {
@@ -35,9 +29,6 @@ export default async function handler(req, res) {
     }
 
     const api = "https://song.link/api/links?url=" + encodeURIComponent(inputUrl);
-=======
-    const api = "https://song.link/api/links?url=" + encodeURIComponent(input);
->>>>>>> 771f3ed9876037d976ad3a6519608a7a859bf54e
 
     try {
         const r = await fetch(api, {
@@ -75,11 +66,7 @@ export default async function handler(req, res) {
         const codeWhiteOnBlack = `https://scannables.scdn.co/uri/plain/png/FFFFFF/000000/640/${uri}`;
 
         return res.status(200).json({
-<<<<<<< HEAD
             input_url: inputUrl,
-=======
-            input_url: input,
->>>>>>> 771f3ed9876037d976ad3a6519608a7a859bf54e
             spotify_url: spotifyUrl,
             spotify_uri: uri,
             spotify_code_png: codeBlackOnWhite,
