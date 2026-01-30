@@ -25,6 +25,8 @@ export default async function handler(req, res) {
         const spotifyUrl = `https://open.spotify.com/${type}/${id}`;
         const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
         const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
+        const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
+        const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -37,7 +39,9 @@ export default async function handler(req, res) {
             spotify_url: spotifyUrl,
             spotify_uri: uri,
             spotify_code_black: codeBlackBar,
-            spotify_code_white: codeWhiteBar
+            spotify_code_white: codeWhiteBar,
+            spotify_code_black_sm: codeBlackBarSm,
+            spotify_code_white_sm: codeWhiteBarSm
         });
     }
 
@@ -99,6 +103,8 @@ export default async function handler(req, res) {
         // 真实 Spotify Code（PNG）
         const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
         const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
+        const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
+        const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -111,7 +117,9 @@ export default async function handler(req, res) {
             spotify_url: spotifyUrl,
             spotify_uri: uri,
             spotify_code_black: codeBlackBar,
-            spotify_code_white: codeWhiteBar
+            spotify_code_white: codeWhiteBar,
+            spotify_code_black_sm: codeBlackBarSm,
+            spotify_code_white_sm: codeWhiteBarSm
         });
     } catch (e) {
         res.setHeader('Cache-Control', 'no-store');
