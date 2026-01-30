@@ -23,8 +23,8 @@ export default async function handler(req, res) {
         }
         const [, type, id] = parts;
         const spotifyUrl = `https://open.spotify.com/${type}/${id}`;
-        const codeBlackOnWhite = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
-        const codeWhiteOnBlack = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
+        const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
+        const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -36,8 +36,8 @@ export default async function handler(req, res) {
             input_uri: uri,
             spotify_url: spotifyUrl,
             spotify_uri: uri,
-            spotify_code_png: codeBlackOnWhite,
-            spotify_code_png_invert: codeWhiteOnBlack
+            spotify_code_black: codeBlackBar,
+            spotify_code_white: codeWhiteBar
         });
     }
 
@@ -97,8 +97,8 @@ export default async function handler(req, res) {
         }
 
         // 真实 Spotify Code（PNG）
-        const codeBlackOnWhite = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
-        const codeWhiteOnBlack = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
+        const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
+        const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -110,8 +110,8 @@ export default async function handler(req, res) {
             input_url: inputUrl,
             spotify_url: spotifyUrl,
             spotify_uri: uri,
-            spotify_code_png: codeBlackOnWhite,
-            spotify_code_png_invert: codeWhiteOnBlack
+            spotify_code_black: codeBlackBar,
+            spotify_code_white: codeWhiteBar
         });
     } catch (e) {
         res.setHeader('Cache-Control', 'no-store');
