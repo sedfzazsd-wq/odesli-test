@@ -2,7 +2,9 @@
     "name": "odesli-test",
     "private": true,
     "scripts": {
-        "dev": "next dev"
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start"
     },
     "dependencies": {
         "next": "^14.0.0",
