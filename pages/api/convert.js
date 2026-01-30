@@ -27,6 +27,10 @@ export default async function handler(req, res) {
         const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
         const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
         const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
+        const codeBlackBarSvg = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/${uri}`;
+        const codeWhiteBarSvg = `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`;
+        const codeBlackBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`;
+        const codeWhiteBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -41,7 +45,11 @@ export default async function handler(req, res) {
             spotify_code_black: codeBlackBar,
             spotify_code_white: codeWhiteBar,
             spotify_code_black_sm: codeBlackBarSm,
-            spotify_code_white_sm: codeWhiteBarSm
+            spotify_code_white_sm: codeWhiteBarSm,
+            spotify_code_black_svg: codeBlackBarSvg,
+            spotify_code_white_svg: codeWhiteBarSvg,
+            spotify_code_black_svg_sm: codeBlackBarSvgSm,
+            spotify_code_white_svg_sm: codeWhiteBarSvgSm
         });
     }
 
@@ -100,11 +108,15 @@ export default async function handler(req, res) {
             uri = `spotify:${type}:${id}`;
         }
 
-        // 真实 Spotify Code（PNG）
+        // 真实 Spotify Code（PNG/SVG）
         const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
         const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
         const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
         const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
+        const codeBlackBarSvg = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/${uri}`;
+        const codeWhiteBarSvg = `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`;
+        const codeBlackBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`;
+        const codeWhiteBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`;
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -119,7 +131,11 @@ export default async function handler(req, res) {
             spotify_code_black: codeBlackBar,
             spotify_code_white: codeWhiteBar,
             spotify_code_black_sm: codeBlackBarSm,
-            spotify_code_white_sm: codeWhiteBarSm
+            spotify_code_white_sm: codeWhiteBarSm,
+            spotify_code_black_svg: codeBlackBarSvg,
+            spotify_code_white_svg: codeWhiteBarSvg,
+            spotify_code_black_svg_sm: codeBlackBarSvgSm,
+            spotify_code_white_svg_sm: codeWhiteBarSvgSm
         });
     } catch (e) {
         res.setHeader('Cache-Control', 'no-store');
