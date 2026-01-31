@@ -1,9 +1,27 @@
+const ALLOWED_ORIGINS = [
+    'https://lumiwavestudio.com',
+    'https://www.lumiwavestudio.com',
+    'http://localhost:3000'
+];
+
+const ALLOWED_ORIGIN_PATTERNS = [
+    /^https:\/\/[a-z0-9-]+\.myshopify\.com$/
+];
+
+function isAllowedOrigin(origin) {
+    if (!origin) return false;
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
+}
+
 export default async function handler(req, res) {
-    const origin = req.headers.origin || '*';
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    if (origin && origin !== '*') {
-        res.setHeader('Vary', 'Origin');
+    const origin = req.headers.origin || '';
+    const allowed = isAllowedOrigin(origin);
+    if (!allowed) {
+        return res.status(403).json({ error: 'Forbidden' });
     }
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
     res.setHeader(
         "Access-Control-Allow-Headers",
