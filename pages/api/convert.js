@@ -89,11 +89,11 @@ export default async function handler(req, res) {
     const cacheKey = buildCacheKey({ inputUrl, inputUri });
     const cached = await readWorkerCache(cacheKey);
     if (cached && typeof cached === 'object') {
-        res.setHeader(
-            "Cache-Control",
-            "public, s-maxage=86400, stale-while-revalidate=604800"
-        );
-        return res.status(200).json(cached);
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=86400, stale-while-revalidate=604800"
+      );
+        return res.status(200).json({ ...cached, cache_hit: true });
     }
 
     if (inputUri) {
@@ -131,7 +131,8 @@ export default async function handler(req, res) {
             spotify_code_white_svg: codeWhiteBarSvg,
             spotify_code_black_svg_sm: codeBlackBarSvgSm,
             spotify_code_white_svg_sm: codeWhiteBarSvgSm,
-            youtube_url: null
+            youtube_url: null,
+            cache_hit: false
         });
     }
 
@@ -220,7 +221,8 @@ export default async function handler(req, res) {
             spotify_code_white_svg: codeWhiteBarSvg,
             spotify_code_black_svg_sm: codeBlackBarSvgSm,
             spotify_code_white_svg_sm: codeWhiteBarSvgSm,
-            youtube_url: youtubeUrl
+            youtube_url: youtubeUrl,
+            cache_hit: false
         };
 
         // Cache write (best-effort)
