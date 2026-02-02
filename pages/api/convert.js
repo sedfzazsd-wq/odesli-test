@@ -17,7 +17,7 @@ function isAllowedOrigin(origin) {
 }
 
 const CACHE_WORKER_URL = process.env.CONVERT_CACHE_WORKER_URL || 'https://soundwave-music.sedfzazsd.workers.dev';
-const CACHE_WORKER_AUTH = process.env.CONVERT_CACHE_AUTH_KEY || 'Soundwave2025ShopifyKey!';
+const CACHE_WORKER_AUTH = process.env.CACHE_AUTH_KEY || '';
 
 function sha256Hex(input) {
     return createHash('sha256').update(String(input || ''), 'utf8').digest('hex');
