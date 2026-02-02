@@ -23,6 +23,39 @@ function sha256Hex(input) {
     return createHash('sha256').update(String(input || ''), 'utf8').digest('hex');
 }
 
+function normalizeAppleMusicUrl(rawUrl) {
+    if (!rawUrl) return '';
+    let url;
+    try {
+        url = new URL(String(rawUrl));
+    } catch (_) {
+        return String(rawUrl);
+    }
+
+    const host = url.hostname;
+    const isAppleHost = host === 'music.apple.com'
+        || host === 'geo.music.apple.com'
+        || host === 'itunes.apple.com';
+    if (!isAppleHost) return url.toString();
+
+    const parts = url.pathname.split('/').filter(Boolean);
+    const country = parts[0] && parts[0].length === 2 ? parts[0] : 'us';
+
+    let trackId = url.searchParams.get('i');
+    if (!trackId) {
+        const last = parts[parts.length - 1];
+        if (parts.includes('song') && /^\d+$/.test(last)) {
+            trackId = last;
+        }
+    }
+
+    if (!trackId || !/^\d+$/.test(trackId)) {
+        return url.toString();
+    }
+
+    return `https://music.apple.com/${country}/song/_/${trackId}`;
+}
+
 function buildCacheKey({ inputUrl, inputUri }) {
     const raw = inputUri
         ? `uri:${String(inputUri).trim()}`
@@ -86,7 +119,9 @@ export default async function handler(req, res) {
     const inputUri = Array.isArray(req.query.uri) ? req.query.uri[0] : req.query.uri;
     if (!inputUrl && !inputUri) return res.status(400).json({ error: "missing url or uri" });
 
-    const cacheKey = buildCacheKey({ inputUrl, inputUri });
+    const normalizedUrl = inputUrl ? normalizeAppleMusicUrl(String(inputUrl)) : '';
+    const effectiveUrl = normalizedUrl || inputUrl;
+    const cacheKey = buildCacheKey({ inputUrl: effectiveUrl, inputUri });
     const cached = await readWorkerCache(cacheKey);
     if (cached && typeof cached === 'object') {
       res.setHeader(
@@ -136,7 +171,7 @@ export default async function handler(req, res) {
         });
     }
 
-    const api = "https://api.song.link/v1-alpha.1/links?url=" + encodeURIComponent(String(inputUrl));
+    const api = "https://api.song.link/v1-alpha.1/links?url=" + encodeURIComponent(String(effectiveUrl));
 
     try {
         const r = await fetch(api, {
