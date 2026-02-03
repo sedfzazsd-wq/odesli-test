@@ -63,8 +63,27 @@ function buildCacheKey({ inputUrl, inputUri }) {
     return sha256Hex(raw);
 }
 
-async function readWorkerCache(cacheKey) {
-    if (!CACHE_WORKER_URL || !cacheKey) return null;
+function isDebugEnabled(value) {
+    if (Array.isArray(value)) value = value[0];
+    const text = String(value || '').trim().toLowerCase();
+    return text === '1' || text === 'true' || text === 'yes';
+}
+
+function sendJson(res, status, payload, debugInfo) {
+    const body = debugInfo ? { ...payload, debug: debugInfo } : payload;
+    return res.status(status).json(body);
+}
+
+async function readWorkerCache(cacheKey, debugInfo) {
+    if (!CACHE_WORKER_URL || !cacheKey) {
+        if (debugInfo) {
+            debugInfo.cacheRead = {
+                skipped: true,
+                reason: !CACHE_WORKER_URL ? 'missing_worker_url' : 'missing_key'
+            };
+        }
+        return null;
+    }
     try {
         const url = `${CACHE_WORKER_URL}/odesli-cache?key=${encodeURIComponent(cacheKey)}`;
         const r = await fetch(url, {
@@ -74,16 +93,39 @@ async function readWorkerCache(cacheKey) {
                 'X-Custom-Auth': CACHE_WORKER_AUTH
             }
         });
+        if (debugInfo) {
+            debugInfo.cacheRead = {
+                attempted: true,
+                status: r.status,
+                ok: r.ok,
+                hit: false
+            };
+        }
         if (r.status === 404) return null;
         if (!r.ok) return null;
-        return await r.json();
+        const data = await r.json();
+        if (debugInfo && debugInfo.cacheRead) {
+            debugInfo.cacheRead.hit = true;
+        }
+        return data;
     } catch (_) {
+        if (debugInfo) {
+            debugInfo.cacheRead = { error: 'read_failed' };
+        }
         return null;
     }
 }
 
-async function writeWorkerCache(cacheKey, payload) {
-    if (!CACHE_WORKER_URL || !cacheKey || !payload) return false;
+async function writeWorkerCache(cacheKey, payload, debugInfo) {
+    if (!CACHE_WORKER_URL || !cacheKey || !payload) {
+        if (debugInfo) {
+            debugInfo.cacheWrite = {
+                skipped: true,
+                reason: !CACHE_WORKER_URL ? 'missing_worker_url' : (!cacheKey ? 'missing_key' : 'missing_payload')
+            };
+        }
+        return false;
+    }
     try {
         const url = `${CACHE_WORKER_URL}/odesli-cache?key=${encodeURIComponent(cacheKey)}`;
         const r = await fetch(url, {
@@ -94,17 +136,32 @@ async function writeWorkerCache(cacheKey, payload) {
             },
             body: JSON.stringify(payload)
         });
+        if (debugInfo) {
+            debugInfo.cacheWrite = {
+                attempted: true,
+                status: r.status,
+                ok: r.ok
+            };
+        }
         return r.ok;
     } catch (_) {
+        if (debugInfo) {
+            debugInfo.cacheWrite = { error: 'write_failed' };
+        }
         return false;
     }
 }
 
 export default async function handler(req, res) {
+    const debugEnabled = isDebugEnabled(req.query && req.query.debug);
+    const debugInfo = debugEnabled ? {
+        cacheWorkerUrl: CACHE_WORKER_URL,
+        cacheAuthConfigured: !!CACHE_WORKER_AUTH
+    } : null;
     const origin = req.headers.origin || '';
     const allowed = isAllowedOrigin(origin);
     if (!allowed) {
-        return res.status(403).json({ error: 'Forbidden' });
+        return sendJson(res, 403, { error: 'Forbidden' }, debugInfo);
     }
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader('Vary', 'Origin');
@@ -117,25 +174,34 @@ export default async function handler(req, res) {
 
     const inputUrl = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
     const inputUri = Array.isArray(req.query.uri) ? req.query.uri[0] : req.query.uri;
-    if (!inputUrl && !inputUri) return res.status(400).json({ error: "missing url or uri" });
+    if (debugInfo) {
+        debugInfo.input = { url: inputUrl || null, uri: inputUri || null };
+    }
+    if (!inputUrl && !inputUri) return sendJson(res, 400, { error: "missing url or uri" }, debugInfo);
 
     const normalizedUrl = inputUrl ? normalizeAppleMusicUrl(String(inputUrl)) : '';
     const effectiveUrl = normalizedUrl || inputUrl;
     const cacheKey = buildCacheKey({ inputUrl: effectiveUrl, inputUri });
-    const cached = await readWorkerCache(cacheKey);
+    if (debugInfo) {
+        debugInfo.normalizedUrl = normalizedUrl || null;
+        debugInfo.effectiveUrl = effectiveUrl || null;
+        debugInfo.cacheKey = cacheKey || null;
+        debugInfo.cacheKeySource = inputUri ? 'uri' : 'url';
+    }
+    const cached = await readWorkerCache(cacheKey, debugInfo);
     if (cached && typeof cached === 'object') {
       res.setHeader(
         "Cache-Control",
         "public, s-maxage=86400, stale-while-revalidate=604800"
       );
-        return res.status(200).json({ ...cached, cache_hit: true });
+        return sendJson(res, 200, { ...cached, cache_hit: true }, debugInfo);
     }
 
     if (inputUri) {
         const uri = String(inputUri).trim();
         const parts = uri.split(':');
         if (parts.length !== 3 || parts[0] !== 'spotify') {
-            return res.status(400).json({ error: "invalid uri format" });
+            return sendJson(res, 400, { error: "invalid uri format" }, debugInfo);
         }
         const [, type, id] = parts;
         const spotifyUrl = `https://open.spotify.com/${type}/${id}`;
@@ -147,6 +213,9 @@ export default async function handler(req, res) {
         const codeWhiteBarSvg = `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`;
         const codeBlackBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`;
         const codeWhiteBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`;
+        if (debugInfo && !debugInfo.cacheWrite) {
+            debugInfo.cacheWrite = { skipped: true, reason: 'uri_mode' };
+        }
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -154,7 +223,7 @@ export default async function handler(req, res) {
             "public, s-maxage=86400, stale-while-revalidate=604800"
         );
 
-        return res.status(200).json({
+        return sendJson(res, 200, {
             input_uri: uri,
             spotify_url: spotifyUrl,
             spotify_uri: uri,
@@ -168,7 +237,7 @@ export default async function handler(req, res) {
             spotify_code_white_svg_sm: codeWhiteBarSvgSm,
             youtube_url: null,
             cache_hit: false
-        });
+        }, debugInfo);
     }
 
     const api = "https://api.song.link/v1-alpha.1/links?url=" + encodeURIComponent(String(effectiveUrl));
@@ -185,12 +254,12 @@ export default async function handler(req, res) {
             const ra = r.headers.get("retry-after");
             if (ra) res.setHeader("Retry-After", ra);
             res.setHeader('Cache-Control', 'no-store');
-            return res.status(429).json({ error: "odesli rate limited", retry_after: ra || null });
+            return sendJson(res, 429, { error: "odesli rate limited", retry_after: ra || null }, debugInfo);
         }
 
         if (!r.ok) {
             res.setHeader('Cache-Control', 'no-store');
-            return res.status(r.status).json({ error: `odesli ${r.status}`, body: await r.text() });
+            return sendJson(res, r.status, { error: `odesli ${r.status}`, body: await r.text() }, debugInfo);
         }
 
         let data;
@@ -200,11 +269,11 @@ export default async function handler(req, res) {
         } catch (err) {
             res.setHeader('Cache-Control', 'no-store');
             const body = await clone.text().catch(() => '');
-            return res.status(502).json({
+            return sendJson(res, 502, {
                 error: 'odesli invalid json',
                 message: String(err),
                 body: String(body).slice(0, 300)
-            });
+            }, debugInfo);
         }
 
         const spotifyLink = data?.linksByPlatform?.spotify || null;
@@ -214,7 +283,7 @@ export default async function handler(req, res) {
         let uri = spotifyLink?.nativeAppUriDesktop || spotifyLink?.nativeAppUriMobile || null;
         if (!spotifyUrl) {
             res.setHeader('Cache-Control', 'no-store');
-            return res.status(404).json({ error: "no spotify match" });
+            return sendJson(res, 404, { error: "no spotify match" }, debugInfo);
         }
 
         if (!uri) {
@@ -223,7 +292,7 @@ export default async function handler(req, res) {
             const [type, id] = u.pathname.replace(/^\/+|\/+$/g, "").split("/");
             if (!type || !id) {
                 res.setHeader('Cache-Control', 'no-store');
-                return res.status(500).json({ error: "cannot parse spotify url", spotify_url: spotifyUrl });
+                return sendJson(res, 500, { error: "cannot parse spotify url", spotify_url: spotifyUrl }, debugInfo);
             }
             uri = `spotify:${type}:${id}`;
         }
@@ -261,11 +330,11 @@ export default async function handler(req, res) {
         };
 
         // Cache write (best-effort)
-        await writeWorkerCache(cacheKey, payload);
+        await writeWorkerCache(cacheKey, payload, debugInfo);
 
-        return res.status(200).json(payload);
+        return sendJson(res, 200, payload, debugInfo);
     } catch (e) {
         res.setHeader('Cache-Control', 'no-store');
-        return res.status(500).json({ error: "fetch failed", message: String(e) });
+        return sendJson(res, 500, { error: "fetch failed", message: String(e) }, debugInfo);
     }
 }
