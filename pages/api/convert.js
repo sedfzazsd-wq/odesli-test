@@ -16,11 +16,91 @@ function isAllowedOrigin(origin) {
     return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
 }
 
+function firstQueryValue(value) {
+    if (Array.isArray(value)) return value[0];
+    return value;
+}
+
+function isTruthy(value) {
+    const text = String(firstQueryValue(value) || '').trim().toLowerCase();
+    return text === '1' || text === 'true' || text === 'yes' || text === 'on';
+}
+
+function normalizeMode(value) {
+    const text = String(firstQueryValue(value) || '').trim().toLowerCase();
+    if (text === 'links' || text === 'link' || text === 'lite' || text === 'minimal') return 'links';
+    if (text === 'code' || text === 'spotifycode' || text === 'spotify_code') return 'code';
+    return 'full';
+}
+
+function resolveIncludeYoutube({ query, mode }) {
+    const raw = firstQueryValue(query && (query.include_youtube ?? query.youtube ?? query.yt));
+    if (raw === undefined || raw === null || String(raw).trim() === '') {
+        // Default: full mode includes youtube; other modes prioritize speed.
+        return mode === 'full';
+    }
+    const text = String(raw).trim().toLowerCase();
+    if (text === '0' || text === 'false' || text === 'no' || text === 'off') return false;
+    if (text === '1' || text === 'true' || text === 'yes' || text === 'on') return true;
+    return mode === 'full';
+}
+
 const CACHE_WORKER_URL = process.env.CONVERT_CACHE_WORKER_URL || 'https://soundwave-music.sedfzazsd.workers.dev';
 const CACHE_WORKER_AUTH = process.env.CACHE_AUTH_KEY || '';
 
 function sha256Hex(input) {
     return createHash('sha256').update(String(input || ''), 'utf8').digest('hex');
+}
+
+function buildSpotifyCodeUrls(uri) {
+    return {
+        spotify_code_black: `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`,
+        spotify_code_white: `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`,
+        spotify_code_black_sm: `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`,
+        spotify_code_white_sm: `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`,
+        spotify_code_black_svg: `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/${uri}`,
+        spotify_code_white_svg: `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`,
+        spotify_code_black_svg_sm: `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`,
+        spotify_code_white_svg_sm: `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`
+    };
+}
+
+function parseSpotifyUrlToUri(rawUrl) {
+    if (!rawUrl) return null;
+    let url;
+    try {
+        url = new URL(String(rawUrl));
+    } catch (_) {
+        return null;
+    }
+
+    if (url.hostname !== 'open.spotify.com') return null;
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (!segments.length) return null;
+
+    // Handle /intl-xx/... and /embed/... wrappers.
+    let i = 0;
+    if (segments[i] && segments[i].startsWith('intl-')) i++;
+    if (segments[i] === 'embed') i++;
+
+    // Handle legacy /user/{userId}/playlist/{playlistId}
+    if (segments[i] === 'user' && segments[i + 2] && segments[i + 3]) {
+        i += 2;
+    }
+
+    const type = segments[i];
+    const id = segments[i + 1];
+    if (!type || !id) return null;
+
+    const allowedTypes = new Set(['track', 'album', 'artist', 'playlist', 'episode', 'show']);
+    if (!allowedTypes.has(type)) return null;
+    if (!/^[A-Za-z0-9]{22}$/.test(id)) return null;
+
+    return {
+        spotifyUrl: `https://open.spotify.com/${type}/${id}`,
+        spotifyUri: `spotify:${type}:${id}`
+    };
 }
 
 function normalizeAppleMusicUrl(rawUrl) {
@@ -72,6 +152,32 @@ function isDebugEnabled(value) {
 function sendJson(res, status, payload, debugInfo) {
     const body = debugInfo ? { ...payload, debug: debugInfo } : payload;
     return res.status(status).json(body);
+}
+
+function filterPayloadForMode(payload, mode) {
+    if (!payload || typeof payload !== 'object') return payload;
+    if (mode !== 'links') return payload;
+
+    const out = {
+        spotify_url: payload.spotify_url || null,
+        spotify_uri: payload.spotify_uri || null,
+        youtube_url: payload.youtube_url ?? null,
+        cache_hit: !!payload.cache_hit
+    };
+
+    if (payload.input_url) out.input_url = payload.input_url;
+    if (payload.input_uri) out.input_uri = payload.input_uri;
+    return out;
+}
+
+function sanitizePayloadForRequest(payload, { mode, includeYoutube }) {
+    const filtered = filterPayloadForMode(payload, mode);
+    if (!filtered || typeof filtered !== 'object') return filtered;
+    if (!includeYoutube) {
+        // Respect yt/include_youtube opt-out even if cache contains a value.
+        filtered.youtube_url = null;
+    }
+    return filtered;
 }
 
 async function readWorkerCache(cacheKey, debugInfo) {
@@ -158,6 +264,18 @@ export default async function handler(req, res) {
         cacheWorkerUrl: CACHE_WORKER_URL,
         cacheAuthConfigured: !!CACHE_WORKER_AUTH
     } : null;
+
+    const requestedModeRaw = firstQueryValue(req.query && req.query.mode);
+    let mode = normalizeMode(requestedModeRaw);
+    if (!requestedModeRaw && isTruthy(req.query && req.query.lite)) {
+        mode = 'links';
+    }
+    const includeYoutube = resolveIncludeYoutube({ query: req.query, mode });
+    if (debugInfo) {
+        debugInfo.mode = mode;
+        debugInfo.includeYoutube = includeYoutube;
+    }
+
     const origin = req.headers.origin || '';
     const allowed = isAllowedOrigin(origin);
     if (!allowed) {
@@ -172,15 +290,62 @@ export default async function handler(req, res) {
     );
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    const inputUrl = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
-    const inputUri = Array.isArray(req.query.uri) ? req.query.uri[0] : req.query.uri;
+    const inputUrl = firstQueryValue(req.query && req.query.url);
+    const inputUri = firstQueryValue(req.query && req.query.uri);
     if (debugInfo) {
         debugInfo.input = { url: inputUrl || null, uri: inputUri || null };
     }
     if (!inputUrl && !inputUri) return sendJson(res, 400, { error: "missing url or uri" }, debugInfo);
 
+    // uri-mode is deterministic: avoid cache worker round-trip.
+    if (inputUri) {
+        const uri = String(inputUri).trim();
+        const parts = uri.split(':');
+        if (parts.length !== 3 || parts[0] !== 'spotify') {
+            return sendJson(res, 400, { error: "invalid uri format" }, debugInfo);
+        }
+        const [, type, id] = parts;
+        const spotifyUrl = `https://open.spotify.com/${type}/${id}`;
+        const base = {
+            input_uri: uri,
+            spotify_url: spotifyUrl,
+            spotify_uri: uri,
+            youtube_url: null,
+            cache_hit: false
+        };
+        const payload = mode === 'links' ? base : { ...base, ...buildSpotifyCodeUrls(uri) };
+
+        // Vercel CDN cache (success only)
+        res.setHeader(
+            "Cache-Control",
+            "public, s-maxage=86400, stale-while-revalidate=604800"
+        );
+        return sendJson(res, 200, sanitizePayloadForRequest(payload, { mode, includeYoutube }), debugInfo);
+    }
+
     const normalizedUrl = inputUrl ? normalizeAppleMusicUrl(String(inputUrl)) : '';
     const effectiveUrl = normalizedUrl || inputUrl;
+
+    // Fast-path: if caller doesn't need YouTube resolution, skip odesli for Spotify URLs.
+    const spotifyParsed = parseSpotifyUrlToUri(effectiveUrl);
+    if (spotifyParsed && !includeYoutube) {
+        const base = {
+            input_url: inputUrl,
+            spotify_url: spotifyParsed.spotifyUrl,
+            spotify_uri: spotifyParsed.spotifyUri,
+            youtube_url: null,
+            cache_hit: false
+        };
+        const payload = mode === 'links' ? base : { ...base, ...buildSpotifyCodeUrls(spotifyParsed.spotifyUri) };
+
+        // Vercel CDN cache (success only)
+        res.setHeader(
+            "Cache-Control",
+            "public, s-maxage=86400, stale-while-revalidate=604800"
+        );
+        return sendJson(res, 200, sanitizePayloadForRequest(payload, { mode, includeYoutube }), debugInfo);
+    }
+
     const cacheKey = buildCacheKey({ inputUrl: effectiveUrl, inputUri });
     if (debugInfo) {
         debugInfo.normalizedUrl = normalizedUrl || null;
@@ -194,51 +359,9 @@ export default async function handler(req, res) {
         "Cache-Control",
         "public, s-maxage=86400, stale-while-revalidate=604800"
       );
-        return sendJson(res, 200, { ...cached, cache_hit: true }, debugInfo);
-    }
-
-    if (inputUri) {
-        const uri = String(inputUri).trim();
-        const parts = uri.split(':');
-        if (parts.length !== 3 || parts[0] !== 'spotify') {
-            return sendJson(res, 400, { error: "invalid uri format" }, debugInfo);
-        }
-        const [, type, id] = parts;
-        const spotifyUrl = `https://open.spotify.com/${type}/${id}`;
-        const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
-        const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
-        const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
-        const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
-        const codeBlackBarSvg = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/${uri}`;
-        const codeWhiteBarSvg = `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`;
-        const codeBlackBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`;
-        const codeWhiteBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`;
-        if (debugInfo && !debugInfo.cacheWrite) {
-            debugInfo.cacheWrite = { skipped: true, reason: 'uri_mode' };
-        }
-
-        // Vercel CDN cache (success only)
-        res.setHeader(
-            "Cache-Control",
-            "public, s-maxage=86400, stale-while-revalidate=604800"
-        );
-
-        return sendJson(res, 200, {
-            input_uri: uri,
-            spotify_url: spotifyUrl,
-            spotify_uri: uri,
-            spotify_code_black: codeBlackBar,
-            spotify_code_white: codeWhiteBar,
-            spotify_code_black_sm: codeBlackBarSm,
-            spotify_code_white_sm: codeWhiteBarSm,
-            spotify_code_black_svg: codeBlackBarSvg,
-            spotify_code_white_svg: codeWhiteBarSvg,
-            spotify_code_black_svg_sm: codeBlackBarSvgSm,
-            spotify_code_white_svg_sm: codeWhiteBarSvgSm,
-            youtube_url: null,
-            cache_hit: false
-        }, debugInfo);
-    }
+         const payload = { ...cached, cache_hit: true };
+         return sendJson(res, 200, sanitizePayloadForRequest(payload, { mode, includeYoutube }), debugInfo);
+     }
 
     const api = "https://api.song.link/v1-alpha.1/links?url=" + encodeURIComponent(String(effectiveUrl));
 
@@ -297,15 +420,8 @@ export default async function handler(req, res) {
             uri = `spotify:${type}:${id}`;
         }
 
-        // 真实 Spotify Code（PNG/SVG）
-        const codeBlackBar = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/640/${uri}`;
-        const codeWhiteBar = `https://scannables.scdn.co/uri/plain/png/000000/white/640/${uri}`;
-        const codeBlackBarSm = `https://scannables.scdn.co/uri/plain/png/FFFFFF/black/320/${uri}`;
-        const codeWhiteBarSm = `https://scannables.scdn.co/uri/plain/png/000000/white/320/${uri}`;
-        const codeBlackBarSvg = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/${uri}`;
-        const codeWhiteBarSvg = `https://scannables.scdn.co/uri/plain/svg/000000/white/640/${uri}`;
-        const codeBlackBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/320/${uri}`;
-        const codeWhiteBarSvgSm = `https://scannables.scdn.co/uri/plain/svg/000000/white/320/${uri}`;
+         // 真实 Spotify Code（PNG/SVG）
+         const codeUrls = buildSpotifyCodeUrls(uri);
 
         // Vercel CDN cache (success only)
         res.setHeader(
@@ -313,26 +429,19 @@ export default async function handler(req, res) {
             "public, s-maxage=86400, stale-while-revalidate=604800"
         );
 
-        const payload = {
-            input_url: inputUrl,
-            spotify_url: spotifyUrl,
-            spotify_uri: uri,
-            spotify_code_black: codeBlackBar,
-            spotify_code_white: codeWhiteBar,
-            spotify_code_black_sm: codeBlackBarSm,
-            spotify_code_white_sm: codeWhiteBarSm,
-            spotify_code_black_svg: codeBlackBarSvg,
-            spotify_code_white_svg: codeWhiteBarSvg,
-            spotify_code_black_svg_sm: codeBlackBarSvgSm,
-            spotify_code_white_svg_sm: codeWhiteBarSvgSm,
-            youtube_url: youtubeUrl,
-            cache_hit: false
-        };
+         const payload = {
+             input_url: inputUrl,
+             spotify_url: spotifyUrl,
+             spotify_uri: uri,
+             ...codeUrls,
+             youtube_url: youtubeUrl,
+             cache_hit: false
+         };
 
         // Cache write (best-effort)
         await writeWorkerCache(cacheKey, payload, debugInfo);
 
-        return sendJson(res, 200, payload, debugInfo);
+          return sendJson(res, 200, sanitizePayloadForRequest(payload, { mode, includeYoutube }), debugInfo);
     } catch (e) {
         res.setHeader('Cache-Control', 'no-store');
         return sendJson(res, 500, { error: "fetch failed", message: String(e) }, debugInfo);
